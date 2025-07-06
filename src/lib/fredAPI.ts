@@ -66,7 +66,8 @@ interface EconomicIndicators {
  */
 async function getFREDSeries(
   seriesId: string,
-  limit: number = 12
+  limit: number = 12,
+  targetDate?: string // Optional date in YYYY-MM-DD format
 ): Promise<{ series: FREDSeries; observations: FREDObservation[] }> {
   const apiKey = process.env.FRED_API_KEY
   if (!apiKey) {
@@ -89,8 +90,25 @@ async function getFREDSeries(
     throw new Error(`No series found for ID: ${seriesId}`)
   }
 
-  // Get observations (data points)
-  const obsUrl = `https://api.stlouisfed.org/fred/series/observations?series_id=${seriesId}&api_key=${apiKey}&file_type=json&limit=${limit}&sort_order=desc`
+  // Build observations URL with optional date parameters
+  let obsUrl = `https://api.stlouisfed.org/fred/series/observations?series_id=${seriesId}&api_key=${apiKey}&file_type=json&limit=${limit}`
+
+  if (targetDate) {
+    // Get data for specific month - set both start and end to the same month
+    const date = new Date(targetDate)
+    const year = date.getFullYear()
+    const month = String(date.getMonth() + 1).padStart(2, '0')
+    const startDate = `${year}-${month}-01`
+    const endDate = `${year}-${month}-31`
+
+    obsUrl += `&observation_start=${startDate}&observation_end=${endDate}&sort_order=desc`
+    console.log(`📅 Fetching FRED data for ${year}-${month}`)
+  } else {
+    // Get most recent data
+    obsUrl += `&sort_order=desc`
+    console.log(`📅 Fetching most recent FRED data`)
+  }
+
   const obsResponse = await fetch(obsUrl)
 
   if (!obsResponse.ok) {
@@ -243,15 +261,17 @@ function calculateHealthScore(
 /**
  * Get comprehensive economic indicators from FRED API
  */
-export async function getFREDEconomicData(): Promise<EconomicIndicators> {
+export async function getFREDEconomicData(
+  targetDate?: string
+): Promise<EconomicIndicators> {
   console.log('Fetching FRED economic indicators...')
 
   try {
     // Fetch data for all three series in parallel
     const [techEmpData, jobOpeningsData, totalEmpData] = await Promise.all([
-      getFREDSeries('CES6054150001', 12), // Computer Systems Design Employment (Monthly)
-      getFREDSeries('JTS540099JOL', 12), // Job Openings in Professional Services (Monthly)
-      getFREDSeries('PAYEMS', 12), // Total Nonfarm Employment (Monthly)
+      getFREDSeries('CES6054150001', 12, targetDate), // Computer Systems Design Employment (Monthly)
+      getFREDSeries('JTS540099JOL', 12, targetDate), // Job Openings in Professional Services (Monthly)
+      getFREDSeries('PAYEMS', 12, targetDate), // Total Nonfarm Employment (Monthly)
     ])
 
     // Process each dataset

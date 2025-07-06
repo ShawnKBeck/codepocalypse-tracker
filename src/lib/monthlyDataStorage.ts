@@ -151,9 +151,9 @@ function migrateHistoricalData(): void {
         source: 'fallback',
       },
       fred: {
-        techEmployment: 2431.2,
-        jobOpenings: 1358,
-        healthScore: 15,
+        techEmployment: 2450, // Slightly higher baseline than July
+        jobOpenings: 1400,
+        healthScore: 25, // Better baseline health
       },
       analysis: {
         jobChange: 0,
