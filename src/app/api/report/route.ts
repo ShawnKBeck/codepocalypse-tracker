@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getSoftwareDevJobCount } from '@/lib/blsScraper'
 import { getIndeedSoftwareDevJobCount } from '@/lib/indeedScraper'
-import { addDataPoint, getTrendingData } from '@/lib/dataStorage'
+import { getBLSEmploymentData } from '@/lib/blsAPI'
+import { getFREDEconomicData, type EconomicIndicators } from '@/lib/fredAPI'
 import { getAlternativeJobsData } from '@/lib/alternativeSources'
+import { addDataPoint, getTrendingData } from '@/lib/dataStorage'
 
 interface BLSData {
   year: string
@@ -28,36 +30,62 @@ const EMAILS = [
 
 export async function POST(req: NextRequest) {
   try {
-    // Accept { live?: boolean, mockHtml?: string } in body
     const body = await req.json()
-    const { live = true, mockHtml } = body
+    console.log('POST /api/report called with body:', body)
 
-    // Fetch from both sources
-    const [blsData, indeedData] = await Promise.allSettled([
-      getSoftwareDevJobCount({ live, mockHtml }),
-      getIndeedSoftwareDevJobCount({ live, mockHtml }),
+    // Fetch data from multiple sources simultaneously
+    const [blsDataResult, indeedData, fredData] = await Promise.allSettled([
+      // Try web scraper first (most current data), then BLS API fallback
+      getSoftwareDevJobCount({ live: true }).catch(async (scraperError) => {
+        console.log('BLS scraper failed, trying API fallback...')
+        try {
+          const apiData = await getBLSEmploymentData()
+          return {
+            year: apiData.current.year,
+            count: apiData.current.employment,
+            source: apiData.metadata.source + ' (API Fallback)',
+            note:
+              apiData.metadata.apiStatus === 'FALLBACK_USED'
+                ? 'BLS API fallback data used'
+                : 'Data from official BLS API v2.0',
+          }
+        } catch (apiError) {
+          throw new Error(`Scraper: ${scraperError} | API: ${apiError}`)
+        }
+      }),
+      getIndeedSoftwareDevJobCount({ live: true }),
+      getFREDEconomicData().catch((error) => {
+        console.log('FRED API failed:', error)
+        throw error
+      }),
     ])
 
     // Process results
     const results = {
       bls: null as BLSData | null,
       indeed: null as IndeedData | null,
+      fred: null as EconomicIndicators | null,
       errors: [] as string[],
     }
 
-    if (blsData.status === 'fulfilled') {
-      results.bls = blsData.value
+    // Process BLS data
+    if (blsDataResult.status === 'fulfilled') {
+      results.bls = blsDataResult.value
       // Save to storage
       addDataPoint('BLS', {
         date: new Date().toISOString(),
-        count: blsData.value.count,
-        year: blsData.value.year,
-        metadata: { source: 'BLS' },
+        count: blsDataResult.value.count,
+        year: blsDataResult.value.year,
+        metadata: {
+          source: blsDataResult.value.source || 'BLS',
+          note: blsDataResult.value.note,
+        },
       })
     } else {
-      results.errors.push(`BLS: ${blsData.reason}`)
+      results.errors.push(`BLS: ${blsDataResult.reason}`)
     }
 
+    // Process Indeed data
     if (indeedData.status === 'fulfilled') {
       results.indeed = indeedData.value
       // Save to storage
@@ -72,6 +100,13 @@ export async function POST(req: NextRequest) {
       })
     } else {
       results.errors.push(`Indeed: ${indeedData.reason}`)
+    }
+
+    // Process FRED data
+    if (fredData.status === 'fulfilled') {
+      results.fred = fredData.value
+    } else {
+      results.errors.push(`FRED: ${fredData.reason}`)
     }
 
     // Get trending data
@@ -92,6 +127,7 @@ export async function POST(req: NextRequest) {
           : '<p>BLS data unavailable</p>'
       }
       ${results.indeed ? `<p><strong>Indeed Job Postings:</strong> ${results.indeed.count.toLocaleString()} jobs</p>` : '<p>Indeed data unavailable</p>'}
+      ${results.fred ? `<p><strong>FRED Economic Data:</strong> Tech Employment: ${results.fred.techEmployment.current.value.toLocaleString()}, Health Score: ${results.fred.healthScore.score}/100</p>` : '<p>FRED data unavailable</p>'}
       
       <h2>Trends</h2>
       <p><strong>BLS Trend:</strong> ${trendData.bls.trend}</p>
@@ -133,30 +169,81 @@ export async function POST(req: NextRequest) {
 }
 
 export async function GET() {
-  // For quick testing: fetch and return the latest job count from both sources
+  // For quick testing: fetch and return the latest job count from all sources
   try {
-    const [blsData, indeedData] = await Promise.allSettled([
-      getSoftwareDevJobCount({ live: true }),
+    // Try BLS API first, then fallback to scraping
+    let blsData: BLSData | null = null
+    let blsError: string | null = null
+
+    // Primary: Try web scraping (most current data)
+    try {
+      console.log('GET: Attempting to fetch from BLS web scraper...')
+      const scraperData = await getSoftwareDevJobCount({ live: true })
+      blsData = {
+        year: scraperData.year,
+        count: scraperData.count,
+        source: scraperData.source + ' (Live Scraping)',
+        note: scraperData.note + ' - Current data from BLS.gov',
+      }
+      console.log(
+        `GET BLS Scraper Success: ${blsData.count.toLocaleString()} jobs`
+      )
+    } catch (scraperError) {
+      console.log('GET: BLS scraper failed, trying API fallback...')
+      blsError = `BLS Scraper: ${scraperError}`
+
+      // Fallback: Try official BLS API
+      try {
+        console.log('GET: Attempting fallback to official BLS API...')
+        const apiData = await getBLSEmploymentData()
+        blsData = {
+          year: apiData.current.year,
+          count: apiData.current.employment,
+          source: apiData.metadata.source + ' (API Fallback)',
+          note:
+            apiData.metadata.apiStatus === 'FALLBACK_USED'
+              ? 'BLS API fallback data used'
+              : 'Data from official BLS API v2.0',
+        }
+        console.log(
+          `GET BLS API Success: ${blsData.count.toLocaleString()} jobs`
+        )
+      } catch (apiError) {
+        blsError += ` | API: ${apiError}`
+      }
+    }
+
+    const [indeedData, fredData] = await Promise.allSettled([
       getIndeedSoftwareDevJobCount({ live: true }),
+      getFREDEconomicData().catch((error) => {
+        console.log('GET: FRED API failed:', error)
+        throw error
+      }),
     ])
 
     const results = {
-      bls: null as BLSData | null,
+      bls: blsData,
       indeed: null as IndeedData | null,
+      fred: null as EconomicIndicators | null,
       errors: [] as string[],
       fallbackUsed: false,
     }
 
-    if (blsData.status === 'fulfilled') {
-      results.bls = blsData.value
-    } else {
-      results.errors.push(`BLS: ${blsData.reason}`)
+    // Add BLS error if both API and scraper failed
+    if (!blsData && blsError) {
+      results.errors.push(blsError)
     }
 
     if (indeedData.status === 'fulfilled') {
       results.indeed = indeedData.value
     } else {
       results.errors.push(`Indeed: ${indeedData.reason}`)
+    }
+
+    if (fredData.status === 'fulfilled') {
+      results.fred = fredData.value
+    } else {
+      results.errors.push(`FRED: ${fredData.reason}`)
     }
 
     // If both primary sources failed, use alternative sources
@@ -187,7 +274,15 @@ export async function GET() {
     // Get trending data
     const trendData = getTrendingData()
 
-    return NextResponse.json({ ok: true, data: results, trends: trendData })
+    return NextResponse.json({
+      ok: true,
+      data: results,
+      trends: trendData,
+      meta: {
+        blsApiUsed: blsData?.source?.includes('BLS API') || false,
+        timestamp: new Date().toISOString(),
+      },
+    })
   } catch (err: unknown) {
     let message = 'Unknown error'
     if (err instanceof Error) message = err.message
