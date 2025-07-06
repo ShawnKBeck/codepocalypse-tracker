@@ -57,7 +57,7 @@ Create a `.env.local` file:
 
 ```
 RESEND_API_KEY=your_resend_api_key
-REPORT_EMAIL_SHWN=shawn@example.com
+REPORT_EMAIL_SHAWN=shawn@example.com
 REPORT_EMAIL_MARK=mark@example.com
 ```
 
