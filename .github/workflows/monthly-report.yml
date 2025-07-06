@@ -20,7 +20,7 @@ jobs:
           # Call your Vercel API endpoint
           response=$(curl -s -w "%{http_code}" \
             -X GET \
-            "https://codepocalypse-tracker.vercel.app/api/monthly-report")
+            "https://codepocalypse-tracker-shawnkbecks-projects.vercel.app/api/monthly-report")
 
           http_code=${response: -3}
           response_body=${response%???}
