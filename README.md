@@ -11,7 +11,7 @@ This app tracks the trend using multiple data sources and keeps both parties upd
 
 ## 📊 Data Sources
 
-- **Bureau of Labor Statistics (BLS)**: Official government employment statistics
+- **Bureau of Labor Statistics (BLS)**: Official government employment statistics. See [BLS API Integration Report](BLS_API_INTEGRATION_REPORT.md) for details.
 - **Indeed Job Postings**: Real-time job posting counts for market demand indicators
 - **Local Storage**: Historical data tracking with trend analysis
 
