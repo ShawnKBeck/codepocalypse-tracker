@@ -24,7 +24,7 @@ interface IndeedData {
 
 // Get emails from env or hardcode for now (replace with env in prod)
 const EMAILS = [
-  process.env.REPORT_EMAIL_SHWN || 'shawn@example.com',
+  process.env.REPORT_EMAIL_SHAWN || 'shawn@example.com',
   process.env.REPORT_EMAIL_MARK || 'mark@example.com',
 ]
 
