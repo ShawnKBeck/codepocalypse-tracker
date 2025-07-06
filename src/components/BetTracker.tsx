@@ -1,6 +1,5 @@
 import React from 'react'
 import {
-  LineChart,
   Line,
   XAxis,
   YAxis,
@@ -22,95 +21,54 @@ import {
   ChartTooltip,
   ChartTooltipContent,
 } from '@/components/ui/chart'
-import { TrendingUp, TrendingDown, Users, Database } from 'lucide-react'
+import { TrendingUp, TrendingDown, Users, Database, Clock } from 'lucide-react'
 
-interface BetData {
+interface ChartDataPoint {
   month: string
   date: string
   baseline: number
-  actual: number | null
-  fredTechEmployment?: number
-  fredJobOpenings?: number
-  fredHealthScore?: number
+  actual: number
+  jobChange: number
+  percentChange: number
+  winner: string
+}
+
+interface MonthlyDataPoint {
+  month: string
+  date: string
+  bls: {
+    count: number
+    source: 'live' | 'fallback'
+  }
+  fred: {
+    techEmployment: number
+    jobOpenings?: number
+    healthScore: number
+  }
+  analysis: {
+    jobChange: number
+    percentChange: number
+    winner: 'Shawn' | 'Mark' | 'Tie'
+    baseline: number
+  }
+  timestamp: string
 }
 
 interface BetTrackerProps {
-  currentData?: {
-    bls: number
-    fred: {
-      techEmployment: number
-      jobOpenings?: number
-      healthScore: number
-    }
+  current: MonthlyDataPoint | null
+  summary: {
+    totalMonths: number
+    currentWinner: string
+    avgMonthlyChange: number
+    trendDirection: 'up' | 'down' | 'stable'
+    nextUpdateDue: string
   }
+  chartData: ChartDataPoint[]
+  fromCache: boolean
+  dataAge?: number
+  nextUpdateDue?: string
+  message?: string
 }
-
-// Historical bet data with actual numbers only
-const betData: BetData[] = [
-  {
-    month: 'Jun 2025',
-    date: '2025-06-06',
-    baseline: 1692.1,
-    actual: 1692.1, // Starting baseline
-    fredTechEmployment: 2431.2,
-    fredJobOpenings: 1358,
-    fredHealthScore: 15,
-  },
-  {
-    month: 'Jul 2025',
-    date: '2025-07-06',
-    baseline: 1692.1,
-    actual: 1656.9, // Current actual data
-    fredTechEmployment: 2431.2,
-    fredJobOpenings: 1358,
-    fredHealthScore: 15,
-  },
-  {
-    month: 'Aug 2025',
-    date: '2025-08-06',
-    baseline: 1692.1,
-    actual: null,
-    fredTechEmployment: undefined,
-    fredJobOpenings: undefined,
-    fredHealthScore: undefined,
-  },
-  {
-    month: 'Sep 2025',
-    date: '2025-09-06',
-    baseline: 1692.1,
-    actual: null,
-    fredTechEmployment: undefined,
-    fredJobOpenings: undefined,
-    fredHealthScore: undefined,
-  },
-  {
-    month: 'Oct 2025',
-    date: '2025-10-06',
-    baseline: 1692.1,
-    actual: null,
-    fredTechEmployment: undefined,
-    fredJobOpenings: undefined,
-    fredHealthScore: undefined,
-  },
-  {
-    month: 'Nov 2025',
-    date: '2025-11-06',
-    baseline: 1692.1,
-    actual: null,
-    fredTechEmployment: undefined,
-    fredJobOpenings: undefined,
-    fredHealthScore: undefined,
-  },
-  {
-    month: 'Dec 2025',
-    date: '2025-12-06',
-    baseline: 1692.1,
-    actual: null,
-    fredTechEmployment: undefined,
-    fredJobOpenings: undefined,
-    fredHealthScore: undefined,
-  },
-]
 
 const chartConfig = {
   baseline: {
@@ -119,547 +77,458 @@ const chartConfig = {
   },
   actual: {
     label: 'Actual BLS Data',
-    color: '#06b6d4', // cyan-500 (retro terminal color)
+    color: '#2563eb', // blue-600
   },
-  fredTechEmployment: {
-    label: 'FRED Tech Employment',
-    color: '#10b981', // emerald-500 (retro green)
-  },
-  fredJobOpenings: {
-    label: 'Job Openings',
-    color: '#f59e0b', // amber-500
-  },
-  fredHealthScore: {
-    label: 'Economic Health',
-    color: '#ef4444', // red-500 (warning color)
+  jobChange: {
+    label: 'Job Change',
+    color: '#059669', // emerald-600 for positive, red-600 for negative
   },
 }
 
-export function BetTracker({ currentData }: BetTrackerProps) {
-  // Update current data if provided
-  const chartData = betData.map((item) => {
-    if (item.month === 'Jul 2025' && currentData) {
-      return {
-        ...item,
-        actual: currentData.bls / 1000, // Convert to thousands
-        fredTechEmployment: currentData.fred.techEmployment,
-        fredJobOpenings: currentData.fred.jobOpenings || 1358,
-        fredHealthScore: currentData.fred.healthScore,
-      }
-    }
-    return item
-  })
+function BetTracker({
+  current,
+  summary,
+  chartData,
+  fromCache,
+  dataAge,
+  nextUpdateDue,
+  message,
+}: BetTrackerProps) {
+  if (!current) {
+    return (
+      <div className="w-full space-y-8">
+        <Card className="bg-yellow-50 border-yellow-200">
+          <CardHeader>
+            <CardTitle className="text-yellow-800">No Data Available</CardTitle>
+            <CardDescription className="text-yellow-600">
+              {message ||
+                'Waiting for the first monthly data collection on the 1st of the month.'}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-center gap-2 text-sm text-yellow-700">
+              <Clock className="w-4 h-4" />
+              {nextUpdateDue && (
+                <span>
+                  Next update: {new Date(nextUpdateDue).toLocaleDateString()}
+                </span>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
 
-  // Create trend data (normalized to percentages for comparison)
-  const trendData = chartData.map((item) => {
-    if (item.actual && item.fredTechEmployment && item.fredHealthScore) {
-      const blsChange = ((item.actual - item.baseline) / item.baseline) * 100
-      const fredHealthChange = ((item.fredHealthScore - 50) / 50) * 100 // Normalize health score around 50
+  // Determine winner styling
+  const isShawnWinning = current.analysis.winner === 'Shawn'
+  const isMarkWinning = current.analysis.winner === 'Mark'
 
-      return {
-        month: item.month,
-        blsTrend: blsChange,
-        fredHealthTrend: fredHealthChange,
-        combinedTrend: (blsChange + fredHealthChange) / 2,
-      }
-    }
-    return {
-      month: item.month,
-      blsTrend: item.month === 'Jun 2025' ? 0 : null,
-      fredHealthTrend: item.month === 'Jun 2025' ? -40 : null, // Health score 15 vs ideal 50
-      combinedTrend: item.month === 'Jun 2025' ? -20 : null,
-    }
-  })
+  // Format numbers for display
+  const formatNumber = (num: number) => num.toLocaleString()
+  const formatDate = (dateStr: string) => {
+    const date = new Date(dateStr)
+    return date.toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+    })
+  }
 
-  const currentActual = chartData.find(
-    (d) => d.actual !== null && d.month === 'Jul 2025'
-  )?.actual
-  const currentBaseline = 1692.1
-  const jobChange = currentActual ? (currentActual - currentBaseline) * 1000 : 0
-  const percentChange = currentActual
-    ? ((currentActual - currentBaseline) / currentBaseline) * 100
-    : 0
-
-  // Determine winner based on data
-  const isShawnWinning = percentChange > 0
-  const economicHealth = currentData?.fred.healthScore || 15
+  // Prepare chart data for display (convert to thousands)
+  const displayChartData = chartData.map((point) => ({
+    ...point,
+    actual: point.actual / 1000,
+    baseline: point.baseline / 1000,
+    jobChange: point.jobChange / 1000,
+  }))
 
   return (
-    <div className="w-full space-y-6">
-      {/* The Bet Status - Original Side-by-Side Layout */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6 mb-6 md:mb-8">
-        <div
-          className={`p-4 md:p-6 rounded-lg border-2 ${
+    <div className="w-full space-y-8">
+      {/* Data Status Banner */}
+      <Card
+        className={`${fromCache ? 'bg-blue-50 border-blue-200' : 'bg-green-50 border-green-200'} shadow-lg`}
+      >
+        <CardContent className="p-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <Database className="w-5 h-5 text-blue-600" />
+              <div>
+                <p className="font-medium text-blue-900">
+                  {fromCache ? 'Cached Data' : 'Fresh Data'}
+                </p>
+                <p className="text-sm text-blue-600">
+                  {message || `Data from ${current.month}`}
+                </p>
+              </div>
+            </div>
+            <div className="text-right">
+              <p className="text-sm text-blue-600">
+                {dataAge !== undefined ? `${dataAge} days old` : 'Current'}
+              </p>
+              <p className="text-xs text-blue-500">
+                Next update:{' '}
+                {nextUpdateDue
+                  ? new Date(nextUpdateDue).toLocaleDateString()
+                  : 'TBD'}
+              </p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* The Bet Status */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <Card
+          className={`${
             isShawnWinning
-              ? 'bg-green-900/50 border-green-400 shadow-green-400/20'
-              : 'bg-gray-800/50 border-gray-600'
+              ? 'border-green-200 bg-green-50 shadow-green-100'
+              : 'border-gray-200 bg-white shadow-gray-100'
           } shadow-lg`}
         >
-          <div className="flex items-center gap-3 mb-3">
-            <TrendingUp className="w-6 md:w-8 h-6 md:h-8 text-green-400" />
-            <div>
-              <h3 className="text-xl md:text-2xl font-bold text-green-400 font-mono retro-text">
+          <CardHeader className="pb-4">
+            <div className="flex items-center gap-2">
+              <Users className="w-5 h-5 text-green-600" />
+              <CardTitle className="text-xl text-green-600">
                 Shawn&apos;s Prediction
-              </h3>
-              <p className="text-sm text-gray-300 font-mono">
-                More jobs in 5 years
-              </p>
+              </CardTitle>
+              {isShawnWinning && (
+                <span className="px-2 py-1 text-xs bg-green-100 text-green-800 rounded-full font-medium">
+                  WINNING
+                </span>
+              )}
             </div>
-          </div>
-          <p className="text-gray-200 font-mono text-sm">
-            &quot;AI will create more software jobs than it eliminates. The
-            demand for developers will continue growing.&quot;
-          </p>
-          {isShawnWinning && (
-            <div className="mt-3 text-green-400 font-bold animate-pulse font-mono retro-text">
-              🏆 Currently Winning!
+            <CardDescription className="text-gray-600">
+              AI will create more software developer jobs
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <p className="text-gray-700 text-sm leading-relaxed mb-4">
+              &quot;AI will create more software jobs than it eliminates. The
+              demand for developers will continue growing.&quot;
+            </p>
+            <div className="flex items-center gap-2 text-sm">
+              <TrendingUp className="w-4 h-4 text-green-600" />
+              <span className="text-green-600 font-medium">
+                Predicts: Job Growth (+)
+              </span>
             </div>
-          )}
-        </div>
+          </CardContent>
+        </Card>
 
-        <div
-          className={`p-4 md:p-6 rounded-lg border-2 ${
-            !isShawnWinning
-              ? 'bg-red-900/50 border-red-400 shadow-red-400/20'
-              : 'bg-gray-800/50 border-gray-600'
+        <Card
+          className={`${
+            isMarkWinning
+              ? 'border-red-200 bg-red-50 shadow-red-100'
+              : 'border-gray-200 bg-white shadow-gray-100'
           } shadow-lg`}
         >
-          <div className="flex items-center gap-3 mb-3">
-            <TrendingDown className="w-6 md:w-8 h-6 md:h-8 text-red-400" />
-            <div>
-              <h3 className="text-xl md:text-2xl font-bold text-red-400 font-mono retro-text">
+          <CardHeader className="pb-4">
+            <div className="flex items-center gap-2">
+              <Users className="w-5 h-5 text-red-600" />
+              <CardTitle className="text-xl text-red-600">
                 Mark&apos;s Prediction
-              </h3>
-              <p className="text-sm text-gray-300 font-mono">
-                Fewer jobs in 5 years
-              </p>
+              </CardTitle>
+              {isMarkWinning && (
+                <span className="px-2 py-1 text-xs bg-red-100 text-red-800 rounded-full font-medium">
+                  WINNING
+                </span>
+              )}
             </div>
-          </div>
-          <p className="text-gray-200 font-mono text-sm">
-            &quot;AI automation will reduce the need for human developers. The
-            job market will contract significantly.&quot;
-          </p>
-          {!isShawnWinning && (
-            <div className="mt-3 text-red-400 font-bold animate-pulse font-mono retro-text">
-              🏆 Currently Winning!
+            <CardDescription className="text-gray-600">
+              AI will reduce software developer jobs
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <p className="text-gray-700 text-sm leading-relaxed mb-4">
+              &quot;AI automation will reduce the need for human developers. The
+              job market will contract significantly.&quot;
+            </p>
+            <div className="flex items-center gap-2 text-sm">
+              <TrendingDown className="w-4 h-4 text-red-600" />
+              <span className="text-red-600 font-medium">
+                Predicts: Job Decline (-)
+              </span>
             </div>
-          )}
-        </div>
+          </CardContent>
+        </Card>
       </div>
 
-      {/* Current Stats - Terminal Style */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6 mb-6 md:mb-8">
-        <div className="bg-gray-900/80 p-4 md:p-6 rounded-lg border border-cyan-400/50 shadow-lg shadow-cyan-400/10">
-          <div className="flex items-center gap-3 mb-2">
-            <Users className="w-6 h-6 text-cyan-400" />
-            <h3 className="text-lg font-semibold text-cyan-400 font-mono">
-              BLS Total
-            </h3>
-          </div>
-          <p className="text-2xl md:text-3xl font-bold text-cyan-300 font-mono">
-            {(currentData?.bls || 1656880).toLocaleString()}
-          </p>
-          <p className="text-sm text-gray-400 font-mono">Software Developers</p>
-        </div>
+      {/* Current Statistics */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        <Card className="bg-white shadow-lg">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-lg text-gray-700">
+              Current Jobs
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-blue-600">
+              {formatNumber(current.bls.count)}
+            </div>
+            <p className="text-sm text-gray-500 mt-1">
+              Software Developers (BLS)
+            </p>
+            <p className="text-xs text-gray-400 mt-1">
+              Source: {current.bls.source === 'live' ? 'Live Data' : 'Fallback'}
+            </p>
+          </CardContent>
+        </Card>
 
-        <div className="bg-gray-900/80 p-4 md:p-6 rounded-lg border border-emerald-400/50 shadow-lg shadow-emerald-400/10">
-          <div className="flex items-center gap-3 mb-2">
-            <Database className="w-6 h-6 text-emerald-400" />
-            <h3 className="text-lg font-semibold text-emerald-400 font-mono">
-              FRED Tech
-            </h3>
-          </div>
-          <p className="text-2xl md:text-3xl font-bold text-emerald-300 font-mono">
-            {(currentData?.fred.techEmployment || 2431.2).toFixed(1)}K
-          </p>
-          <p className="text-sm text-gray-400 font-mono">Tech Employment</p>
-        </div>
+        <Card className="bg-white shadow-lg">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-lg text-gray-700">Job Change</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div
+              className={`text-2xl font-bold ${
+                current.analysis.jobChange >= 0
+                  ? 'text-green-600'
+                  : 'text-red-600'
+              }`}
+            >
+              {current.analysis.jobChange >= 0 ? '+' : ''}
+              {formatNumber(current.analysis.jobChange)}
+            </div>
+            <p className="text-sm text-gray-500 mt-1">vs 2023 Baseline</p>
+            <p className="text-xs text-gray-400 mt-1">
+              {current.analysis.percentChange >= 0 ? '+' : ''}
+              {current.analysis.percentChange.toFixed(2)}%
+            </p>
+          </CardContent>
+        </Card>
 
-        <div className="bg-gray-900/80 p-4 md:p-6 rounded-lg border border-yellow-400/50 shadow-lg shadow-yellow-400/10">
-          <div className="flex items-center gap-3 mb-2">
-            {percentChange > 0 ? (
-              <TrendingUp className="w-6 h-6 text-green-400" />
-            ) : (
-              <TrendingDown className="w-6 h-6 text-red-400" />
+        <Card className="bg-white shadow-lg">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-lg text-gray-700">
+              FRED Tech Employment
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-emerald-600">
+              {current.fred.techEmployment.toLocaleString()}K
+            </div>
+            <p className="text-sm text-gray-500 mt-1">Total Tech Workers</p>
+            {current.fred.jobOpenings && (
+              <p className="text-xs text-gray-400 mt-1">
+                {current.fred.jobOpenings}K job openings
+              </p>
             )}
-            <h3 className="text-lg font-semibold text-yellow-400 font-mono">
-              BLS Trend
-            </h3>
-          </div>
-          <p
-            className={`text-2xl md:text-3xl font-bold font-mono ${percentChange > 0 ? 'text-green-400' : 'text-red-400'}`}
+          </CardContent>
+        </Card>
+
+        <Card className="bg-white shadow-lg">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-lg text-gray-700">
+              Economic Health
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div
+              className={`text-2xl font-bold ${
+                current.fred.healthScore >= 70
+                  ? 'text-green-600'
+                  : current.fred.healthScore >= 40
+                    ? 'text-yellow-600'
+                    : 'text-red-600'
+              }`}
+            >
+              {current.fred.healthScore}/100
+            </div>
+            <p className="text-sm text-gray-500 mt-1">
+              {current.fred.healthScore >= 70
+                ? 'Healthy'
+                : current.fred.healthScore >= 40
+                  ? 'Moderate'
+                  : 'Critical'}
+            </p>
+            <p className="text-xs text-gray-400 mt-1">FRED Composite Score</p>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Winner Announcement */}
+      <Card
+        className={`${
+          isShawnWinning
+            ? 'bg-green-50 border-green-200'
+            : isMarkWinning
+              ? 'bg-red-50 border-red-200'
+              : 'bg-gray-50 border-gray-200'
+        } shadow-lg`}
+      >
+        <CardHeader>
+          <CardTitle
+            className={`text-xl ${
+              isShawnWinning
+                ? 'text-green-700'
+                : isMarkWinning
+                  ? 'text-red-700'
+                  : 'text-gray-700'
+            }`}
           >
-            {percentChange > 0 ? '+' : ''}
-            {percentChange.toFixed(1)}%
-          </p>
-          <p className="text-sm text-gray-400 font-mono">
-            Change from baseline
-          </p>
-        </div>
-
-        <div className="bg-gray-900/80 p-4 md:p-6 rounded-lg border border-red-400/50 shadow-lg shadow-red-400/10">
-          <div className="flex items-center gap-3 mb-2">
-            <TrendingDown className="w-6 h-6 text-red-400" />
-            <h3 className="text-lg font-semibold text-red-400 font-mono">
-              Economy
-            </h3>
-          </div>
-          <p className="text-2xl md:text-3xl font-bold text-red-400 font-mono">
-            {economicHealth}/100
-          </p>
-          <p className="text-sm text-gray-400 font-mono">
-            Health Score (Critical)
-          </p>
-        </div>
-      </div>
-
-      {/* Dual Data Analysis Report - Terminal Style */}
-      <div className="bg-gray-900/80 p-4 md:p-6 rounded-lg border border-cyan-400/50 shadow-lg shadow-cyan-400/10 mb-6 md:mb-8">
-        <h3 className="text-xl md:text-2xl font-bold mb-4 text-cyan-400 font-mono retro-text">
-          📊 DUAL DATA ANALYSIS REPORT
-        </h3>
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <div>
-            <h4 className="text-lg font-semibold text-green-400 mb-3 font-mono">
-              📍 BLS DATA (QUARTERLY)
-            </h4>
-            <div className="space-y-2 text-sm text-gray-300 font-mono">
-              <p>
-                <span className="text-cyan-400">CURRENT COUNT:</span>{' '}
-                {(currentData?.bls || 1656880).toLocaleString()} developers
-              </p>
-              <p>
-                <span className="text-cyan-400">CHANGE:</span>{' '}
-                {jobChange > 0 ? '+' : ''}
-                {jobChange.toLocaleString()} jobs ({percentChange.toFixed(1)}%)
-              </p>
-              <p>
-                <span className="text-cyan-400">TREND:</span>{' '}
-                {percentChange > 0 ? 'GROWTH TRAJECTORY' : 'DECLINING TREND'}
-              </p>
-              <p>
-                <span className="text-cyan-400">OUTLOOK:</span>{' '}
-                {percentChange > 0 ? 'SUPPORTS SHAWN' : 'SUPPORTS MARK'}
-              </p>
-            </div>
-          </div>
-          <div>
-            <h4 className="text-lg font-semibold text-red-400 mb-3 font-mono">
-              ⚠️ FRED DATA (MONTHLY)
-            </h4>
-            <div className="space-y-2 text-sm text-gray-300 font-mono">
-              <p>
-                <span className="text-cyan-400">TECH SECTOR:</span>{' '}
-                {(currentData?.fred.techEmployment || 2431.2).toFixed(1)}K
-                workers
-              </p>
-              <p>
-                <span className="text-cyan-400">HEALTH SCORE:</span>{' '}
-                {economicHealth}/100 (CRITICAL)
-              </p>
-              <p>
-                <span className="text-cyan-400">STATUS:</span> ECONOMIC STRESS
-                DETECTED
-              </p>
-              <p>
-                <span className="text-cyan-400">SIGNAL:</span> WARNING
-                INDICATORS ACTIVE
-              </p>
-            </div>
-          </div>
-        </div>
-
-        <div className="mt-4 p-4 bg-yellow-900/30 border border-yellow-600 rounded font-mono">
-          <p className="text-yellow-200 font-medium text-sm">
-            ⚠️ <span className="text-yellow-400">SYSTEM ALERT:</span> BLS shows{' '}
-            {percentChange > 0 ? 'growth' : 'decline'}(
-            {percentChange.toFixed(1)}%) while FRED economic health remains
-            critical ({economicHealth}/100). Monitoring both data streams for
-            convergence patterns. Current status:{' '}
-            <span
-              className={percentChange > 0 ? 'text-green-400' : 'text-red-400'}
-            >
-              {percentChange > 0 ? 'SHAWN AHEAD' : 'MARK AHEAD'}
-            </span>
-          </p>
-        </div>
-      </div>
-
-      {/* Charts with retro styling */}
-      <Card className="bg-gray-900/80 border-cyan-400/50 shadow-lg shadow-cyan-400/10">
-        <CardHeader>
-          <CardTitle className="text-cyan-400 font-mono retro-text">
-            🤖 CODEPOCALYPSE TRACKER
+            Current Winner: {current.analysis.winner}
           </CardTitle>
-          <CardDescription className="text-gray-300 font-mono">
-            Software Developer Job Decline - Real-Time Government Data
-          </CardDescription>
         </CardHeader>
         <CardContent>
-          <ChartContainer config={chartConfig} className="h-[300px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart
-                data={chartData}
-                margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
-              >
-                <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-                <XAxis
-                  dataKey="month"
-                  stroke="#9ca3af"
-                  tick={{ fill: '#9ca3af', fontFamily: 'monospace' }}
-                />
-                <YAxis
-                  domain={[1600, 1750]}
-                  stroke="#9ca3af"
-                  tick={{ fill: '#9ca3af', fontFamily: 'monospace' }}
-                />
-                <ChartTooltip content={<ChartTooltipContent />} />
-                <Legend />
-
-                {/* Baseline line */}
-                <Line
-                  type="monotone"
-                  dataKey="baseline"
-                  stroke={chartConfig.baseline.color}
-                  strokeWidth={2}
-                  strokeDasharray="5 5"
-                  dot={{ r: 4 }}
-                  name="2023 Baseline"
-                />
-
-                {/* Actual data line */}
-                <Line
-                  type="monotone"
-                  dataKey="actual"
-                  stroke={chartConfig.actual.color}
-                  strokeWidth={4}
-                  dot={{ r: 8 }}
-                  name="Live BLS Data"
-                  connectNulls={false}
-                />
-              </LineChart>
-            </ResponsiveContainer>
-          </ChartContainer>
-        </CardContent>
-      </Card>
-
-      {/* FRED Economic Indicators Chart */}
-      <Card className="bg-gray-900/80 border-emerald-400/50 shadow-lg shadow-emerald-400/10">
-        <CardHeader>
-          <CardTitle className="text-emerald-400 font-mono retro-text">
-            📡 ECONOMIC WARNING SIGNALS
-          </CardTitle>
-          <CardDescription className="text-gray-300 font-mono">
-            Federal Reserve Data - Economic Health Monitoring
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <ChartContainer config={chartConfig} className="h-[300px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <ComposedChart
-                data={chartData}
-                margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
-              >
-                <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-                <XAxis
-                  dataKey="month"
-                  stroke="#9ca3af"
-                  tick={{ fill: '#9ca3af', fontFamily: 'monospace' }}
-                />
-                <YAxis
-                  yAxisId="left"
-                  orientation="left"
-                  domain={[0, 3000]}
-                  stroke="#9ca3af"
-                  tick={{ fill: '#9ca3af', fontFamily: 'monospace' }}
-                />
-                <YAxis
-                  yAxisId="right"
-                  orientation="right"
-                  domain={[0, 100]}
-                  stroke="#9ca3af"
-                  tick={{ fill: '#9ca3af', fontFamily: 'monospace' }}
-                />
-                <ChartTooltip content={<ChartTooltipContent />} />
-                <Legend />
-
-                <Bar
-                  yAxisId="left"
-                  dataKey="fredTechEmployment"
-                  fill={chartConfig.fredTechEmployment.color}
-                  name="Tech Employment (K)"
-                />
-
-                <Bar
-                  yAxisId="left"
-                  dataKey="fredJobOpenings"
-                  fill={chartConfig.fredJobOpenings.color}
-                  name="Job Openings"
-                />
-
-                <Line
-                  yAxisId="right"
-                  type="monotone"
-                  dataKey="fredHealthScore"
-                  stroke={chartConfig.fredHealthScore.color}
-                  strokeWidth={3}
-                  dot={{ r: 6 }}
-                  name="Economic Health Score"
-                  connectNulls={false}
-                />
-              </ComposedChart>
-            </ResponsiveContainer>
-          </ChartContainer>
-        </CardContent>
-      </Card>
-
-      {/* Combined Trends Chart */}
-      <Card className="bg-gray-900/80 border-purple-400/50 shadow-lg shadow-purple-400/10">
-        <CardHeader>
-          <CardTitle className="text-purple-400 font-mono retro-text">
-            🔮 THE CONVERGENCE
-          </CardTitle>
-          <CardDescription className="text-gray-300 font-mono">
-            All Economic Indicators - Trend Analysis Matrix
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <ChartContainer config={chartConfig} className="h-[300px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart
-                data={trendData}
-                margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
-              >
-                <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-                <XAxis
-                  dataKey="month"
-                  stroke="#9ca3af"
-                  tick={{ fill: '#9ca3af', fontFamily: 'monospace' }}
-                />
-                <YAxis
-                  domain={[-50, 10]}
-                  stroke="#9ca3af"
-                  tick={{ fill: '#9ca3af', fontFamily: 'monospace' }}
-                />
-                <ChartTooltip
-                  content={<ChartTooltipContent />}
-                  formatter={(value: unknown, name: string) => [
-                    typeof value === 'number' ? `${value.toFixed(1)}%` : 'N/A',
-                    name,
-                  ]}
-                />
-                <Legend />
-
-                <Line
-                  type="monotone"
-                  dataKey="blsTrend"
-                  stroke={chartConfig.actual.color}
-                  strokeWidth={3}
-                  dot={{ r: 6 }}
-                  name="Jobs Trend"
-                  connectNulls={false}
-                />
-
-                <Line
-                  type="monotone"
-                  dataKey="fredHealthTrend"
-                  stroke={chartConfig.fredHealthScore.color}
-                  strokeWidth={3}
-                  dot={{ r: 6 }}
-                  name="Economic Health Crisis"
-                  connectNulls={false}
-                />
-
-                <Line
-                  type="monotone"
-                  dataKey="combinedTrend"
-                  stroke="#8b5cf6"
-                  strokeWidth={2}
-                  strokeDasharray="8 4"
-                  dot={{ r: 4 }}
-                  name="Codepocalypse Index"
-                  connectNulls={false}
-                />
-              </LineChart>
-            </ResponsiveContainer>
-          </ChartContainer>
-        </CardContent>
-      </Card>
-
-      {/* The Verdict - Terminal Style */}
-      <div className="bg-gray-900/80 p-4 md:p-6 rounded-lg border border-cyan-400/50 shadow-lg shadow-cyan-400/10">
-        <h3 className="text-xl md:text-2xl font-bold mb-4 text-cyan-400 font-mono retro-text">
-          ⚖️ THE VERDICT
-        </h3>
-        <p className="text-center text-gray-300 mb-6 font-mono">
-          Real-time government data analysis • 5-year bet tracking initiated
-        </p>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div>
-            <h4
-              className={`font-semibold mb-2 font-mono ${isShawnWinning ? 'text-green-400' : 'text-gray-500'}`}
-            >
-              SHAWN&apos;S PREDICTION: {isShawnWinning ? '✓ AHEAD' : '✗ BEHIND'}
-            </h4>
-            <div className="space-y-2 font-mono text-sm">
-              <div className="flex justify-between">
-                <span className="text-gray-400">STARTING POINT:</span>
-                <span className="text-cyan-300">1,692,100 jobs</span>
+          <div className="space-y-3">
+            <div className="flex items-center gap-3">
+              <div className="text-3xl font-bold text-gray-900">
+                {formatNumber(current.bls.count)}
               </div>
-              <div className="flex justify-between">
-                <span className="text-gray-400">CURRENT REALITY:</span>
-                <span
-                  className={`font-medium ${isShawnWinning ? 'text-green-400' : 'text-red-400'}`}
+              <div className="text-sm text-gray-600">
+                <div>Software Developer Jobs</div>
+                <div className="font-medium">
+                  {current.analysis.jobChange >= 0 ? '+' : ''}
+                  {formatNumber(current.analysis.jobChange)} from baseline
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 text-sm">
+              {current.analysis.winner === 'Shawn' ? (
+                <TrendingUp className="w-4 h-4 text-green-600" />
+              ) : current.analysis.winner === 'Mark' ? (
+                <TrendingDown className="w-4 h-4 text-red-600" />
+              ) : (
+                <div className="w-4 h-4 bg-gray-400 rounded-full" />
+              )}
+              <span className="text-gray-600">
+                {current.analysis.winner === 'Shawn'
+                  ? 'Jobs are growing - AI is creating opportunities'
+                  : current.analysis.winner === 'Mark'
+                    ? 'Jobs are declining - AI automation impact'
+                    : 'Market is stable - too close to call'}
+              </span>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Charts */}
+      {chartData.length > 0 && (
+        <Card className="bg-white shadow-lg">
+          <CardHeader>
+            <CardTitle className="text-xl text-gray-700">
+              Job Market Trends
+            </CardTitle>
+            <CardDescription>
+              Tracking software developer employment vs 2023 baseline
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <ChartContainer config={chartConfig} className="h-[300px] w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <ComposedChart
+                  data={displayChartData}
+                  margin={{ top: 20, right: 30, left: 20, bottom: 5 }}
                 >
-                  {(currentData?.bls || 1656880).toLocaleString()} jobs
-                </span>
+                  <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
+                  <XAxis
+                    dataKey="month"
+                    tick={{ fontSize: 12 }}
+                    angle={-45}
+                    textAnchor="end"
+                    height={60}
+                  />
+                  <YAxis
+                    tick={{ fontSize: 12 }}
+                    label={{
+                      value: 'Jobs (thousands)',
+                      angle: -90,
+                      position: 'insideLeft',
+                    }}
+                  />
+                  <ChartTooltip content={<ChartTooltipContent />} />
+                  <Legend />
+                  <Line
+                    type="monotone"
+                    dataKey="baseline"
+                    stroke="#6b7280"
+                    strokeDasharray="5 5"
+                    name="2023 Baseline"
+                    dot={{ fill: '#6b7280', r: 4 }}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="actual"
+                    stroke="#2563eb"
+                    strokeWidth={2}
+                    name="Actual Jobs"
+                    dot={{ fill: '#2563eb', r: 5 }}
+                  />
+                  <Bar
+                    dataKey="jobChange"
+                    fill="#059669"
+                    name="Job Change"
+                    opacity={0.7}
+                  />
+                </ComposedChart>
+              </ResponsiveContainer>
+            </ChartContainer>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Data Summary */}
+      <Card className="bg-white shadow-lg">
+        <CardHeader>
+          <CardTitle className="text-xl text-gray-700">
+            Monthly Summary
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="text-center">
+              <div className="text-2xl font-bold text-blue-600">
+                {summary.totalMonths}
               </div>
-              <div className="flex justify-between">
-                <span className="text-gray-400">NET CHANGE:</span>
-                <span
-                  className={`font-medium ${isShawnWinning ? 'text-green-400' : 'text-red-400'}`}
-                >
-                  {jobChange > 0 ? '+' : ''}
-                  {Math.abs(jobChange).toLocaleString()} (
-                  {Math.abs(percentChange).toFixed(1)}%{' '}
-                  {jobChange > 0 ? 'growth' : 'decline'})
-                </span>
+              <p className="text-sm text-gray-500">Months of Data</p>
+            </div>
+            <div className="text-center">
+              <div className="text-2xl font-bold text-gray-700">
+                {formatNumber(summary.avgMonthlyChange)}
               </div>
+              <p className="text-sm text-gray-500">Avg Monthly Change</p>
+            </div>
+            <div className="text-center">
+              <div
+                className={`text-2xl font-bold ${
+                  summary.trendDirection === 'up'
+                    ? 'text-green-600'
+                    : summary.trendDirection === 'down'
+                      ? 'text-red-600'
+                      : 'text-gray-600'
+                }`}
+              >
+                {summary.trendDirection === 'up'
+                  ? '↗'
+                  : summary.trendDirection === 'down'
+                    ? '↘'
+                    : '→'}
+              </div>
+              <p className="text-sm text-gray-500">Trend Direction</p>
             </div>
           </div>
 
-          <div>
-            <h4
-              className={`font-semibold mb-2 font-mono ${!isShawnWinning ? 'text-red-400' : 'text-gray-500'}`}
-            >
-              MARK&apos;S PREDICTION: {!isShawnWinning ? '✓ AHEAD' : '✗ BEHIND'}
+          <div className="mt-6 p-4 bg-gray-50 rounded-lg">
+            <h4 className="font-medium text-gray-700 mb-2">
+              Data Collection Schedule
             </h4>
-            <div className="space-y-2 font-mono text-sm">
-              <div className="flex justify-between">
-                <span className="text-gray-400">ECONOMIC HEALTH:</span>
-                <span className="text-red-400">
-                  {economicHealth}/100 (CRITICAL)
-                </span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-gray-400">TECH SECTOR:</span>
-                <span className="text-red-400">
-                  {(currentData?.fred.techEmployment || 2431.2).toFixed(1)}K
-                  (STRESSED)
-                </span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-gray-400">AI IMPACT:</span>
-                <span className="text-red-400">MONITORING</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-gray-400">TREND SIGNAL:</span>
-                <span className="text-yellow-400">WARNING ACTIVE</span>
-              </div>
-            </div>
+            <p className="text-sm text-gray-600">
+              Data is automatically collected on the 1st of each month from BLS
+              and FRED sources. Between updates, the app serves cached data for
+              instant loading.
+            </p>
+            <p className="text-sm text-gray-500 mt-2">
+              Last updated: {formatDate(current.timestamp)} • Next update:{' '}
+              {nextUpdateDue
+                ? new Date(nextUpdateDue).toLocaleDateString()
+                : 'TBD'}
+            </p>
           </div>
-        </div>
-      </div>
+        </CardContent>
+      </Card>
     </div>
   )
 }
