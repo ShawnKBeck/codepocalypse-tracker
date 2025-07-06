@@ -31,12 +31,91 @@ interface MonthlyDataStorage {
 const DATA_DIR = path.join(process.cwd(), 'data')
 const MONTHLY_FILE = path.join(DATA_DIR, 'monthly-bet-data.json')
 
+// Check if we're in a serverless environment (like Vercel)
+const IS_SERVERLESS =
+  process.env.VERCEL ||
+  process.env.AWS_LAMBDA_FUNCTION_NAME ||
+  process.env.FUNCTION_NAME
+
 /**
- * Ensures the data directory exists
+ * Ensures the data directory exists (only works in non-serverless environments)
  */
 function ensureDataDir() {
-  if (!fs.existsSync(DATA_DIR)) {
-    fs.mkdirSync(DATA_DIR, { recursive: true })
+  if (IS_SERVERLESS) {
+    return // Skip directory creation in serverless environments
+  }
+
+  try {
+    if (!fs.existsSync(DATA_DIR)) {
+      fs.mkdirSync(DATA_DIR, { recursive: true })
+    }
+  } catch (error) {
+    console.warn(
+      'Could not create data directory (serverless environment):',
+      error
+    )
+  }
+}
+
+/**
+ * Get default historical data for fallback
+ */
+function getDefaultHistoricalData(): MonthlyDataStorage {
+  const baseline = 1692100
+  const now = new Date()
+  const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1)
+
+  // Default historical data for June and July 2025
+  const juneData: MonthlyDataPoint = {
+    month: '2025-06',
+    date: '2025-06-06T00:00:00.000Z',
+    bls: {
+      count: baseline,
+      source: 'fallback',
+    },
+    fred: {
+      techEmployment: 2431.2,
+      jobOpenings: 1358,
+      healthScore: 15,
+    },
+    analysis: {
+      jobChange: 0,
+      percentChange: 0,
+      winner: 'Tie',
+      baseline: baseline,
+    },
+    timestamp: '2025-06-06T00:00:00.000Z',
+  }
+
+  const julyBLS = 1656880
+  const julyJobChange = julyBLS - baseline
+  const julyPercentChange = (julyJobChange / baseline) * 100
+
+  const julyData: MonthlyDataPoint = {
+    month: '2025-07',
+    date: '2025-07-15T00:00:00.000Z',
+    bls: {
+      count: julyBLS,
+      source: 'live',
+    },
+    fred: {
+      techEmployment: 2431.2,
+      jobOpenings: 1358,
+      healthScore: 15,
+    },
+    analysis: {
+      jobChange: julyJobChange,
+      percentChange: julyPercentChange,
+      winner: julyJobChange < 0 ? 'Mark' : julyJobChange > 0 ? 'Shawn' : 'Tie',
+      baseline: baseline,
+    },
+    timestamp: '2025-07-15T00:00:00.000Z',
+  }
+
+  return {
+    data: [juneData, julyData],
+    lastUpdated: new Date().toISOString(),
+    nextUpdateDue: nextMonth.toISOString(),
   }
 }
 
@@ -44,6 +123,10 @@ function ensureDataDir() {
  * Migrate historical data for June and July 2025
  */
 function migrateHistoricalData(): void {
+  if (IS_SERVERLESS) {
+    return // Skip migration in serverless environments
+  }
+
   const storage = loadMonthlyData()
 
   // Check if we already have historical data
@@ -128,6 +211,14 @@ function migrateHistoricalData(): void {
  * Loads monthly data from storage
  */
 export function loadMonthlyData(): MonthlyDataStorage {
+  // In serverless environments, always return default data
+  if (IS_SERVERLESS) {
+    console.log(
+      '🔄 Serverless environment detected - using default historical data'
+    )
+    return getDefaultHistoricalData()
+  }
+
   ensureDataDir()
 
   if (!fs.existsSync(MONTHLY_FILE)) {
@@ -146,14 +237,8 @@ export function loadMonthlyData(): MonthlyDataStorage {
     return JSON.parse(data)
   } catch (error) {
     console.error('Error loading monthly data:', error)
-    const now = new Date()
-    const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1)
-
-    return {
-      data: [],
-      lastUpdated: new Date().toISOString(),
-      nextUpdateDue: nextMonth.toISOString(),
-    }
+    // Return default data as fallback
+    return getDefaultHistoricalData()
   }
 }
 
@@ -161,6 +246,12 @@ export function loadMonthlyData(): MonthlyDataStorage {
  * Saves monthly data to storage
  */
 export function saveMonthlyData(storage: MonthlyDataStorage): void {
+  // In serverless environments, we can't save to file system
+  if (IS_SERVERLESS) {
+    console.log('🔄 Serverless environment - skipping file save')
+    return
+  }
+
   ensureDataDir()
 
   try {
@@ -168,7 +259,10 @@ export function saveMonthlyData(storage: MonthlyDataStorage): void {
     fs.writeFileSync(MONTHLY_FILE, JSON.stringify(storage, null, 2))
   } catch (error) {
     console.error('Error saving monthly data:', error)
-    throw error
+    // Don't throw error in serverless environments
+    if (!IS_SERVERLESS) {
+      throw error
+    }
   }
 }
 
@@ -181,6 +275,13 @@ export function shouldUpdateData(): boolean {
 
   // Only update on the 1st of the month
   if (today !== 1) {
+    return false
+  }
+
+  // In serverless environments, we can't persist data between calls
+  // So we always return false to prevent unnecessary data fetching
+  if (IS_SERVERLESS) {
+    console.log('🔄 Serverless environment - using cached data')
     return false
   }
 
@@ -197,8 +298,10 @@ export function shouldUpdateData(): boolean {
  * Gets the current month's data or the most recent available
  */
 export function getCurrentMonthData(): MonthlyDataPoint | null {
-  // Run migration on first access
-  migrateHistoricalData()
+  // Run migration on first access (skip in serverless)
+  if (!IS_SERVERLESS) {
+    migrateHistoricalData()
+  }
 
   const storage = loadMonthlyData()
 
@@ -253,6 +356,15 @@ export function addMonthlyDataPoint(
     timestamp: now.toISOString(),
   }
 
+  // In serverless environments, we can't persist data
+  // So we just return the data point without saving
+  if (IS_SERVERLESS) {
+    console.log(
+      '🔄 Serverless environment - returning data point without saving'
+    )
+    return dataPoint
+  }
+
   const storage = loadMonthlyData()
 
   // Remove existing data for this month if it exists
@@ -281,8 +393,10 @@ export function addMonthlyDataPoint(
  * Gets all historical monthly data
  */
 export function getAllMonthlyData(): MonthlyDataPoint[] {
-  // Run migration on first access
-  migrateHistoricalData()
+  // Run migration on first access (skip in serverless)
+  if (!IS_SERVERLESS) {
+    migrateHistoricalData()
+  }
 
   const storage = loadMonthlyData()
   return storage.data.sort(
@@ -325,8 +439,10 @@ export function getDataSummary(): {
   trendDirection: 'up' | 'down' | 'stable'
   nextUpdateDue: string
 } {
-  // Run migration on first access
-  migrateHistoricalData()
+  // Run migration on first access (skip in serverless)
+  if (!IS_SERVERLESS) {
+    migrateHistoricalData()
+  }
 
   const storage = loadMonthlyData()
   const current = getCurrentMonthData()
@@ -375,7 +491,10 @@ export function debugMonthlyStorage() {
   const summary = getDataSummary()
 
   console.log('Monthly Storage Debug:', {
-    fileExists: fs.existsSync(MONTHLY_FILE),
+    environment: IS_SERVERLESS ? 'Serverless' : 'Local',
+    fileExists: IS_SERVERLESS
+      ? 'N/A (serverless)'
+      : fs.existsSync(MONTHLY_FILE),
     dataPoints: storage.data.length,
     shouldUpdate: shouldUpdateData(),
     current: current

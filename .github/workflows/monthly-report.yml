@@ -1,0 +1,42 @@
+name: Monthly Codepocalypse Report
+
+on:
+  schedule:
+    # Runs on the 6th of every month at 9:00 AM UTC
+    - cron: '0 9 6 * *'
+
+  # Allow manual triggering for testing
+  workflow_dispatch:
+
+jobs:
+  send-monthly-report:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Send Monthly Report
+        run: |
+          echo "🤖 Triggering monthly Codepocalypse report..."
+
+          # Call your Vercel API endpoint
+          response=$(curl -s -w "%{http_code}" \
+            -X GET \
+            "https://your-vercel-app.vercel.app/api/monthly-report")
+
+          http_code=${response: -3}
+          response_body=${response%???}
+
+          echo "HTTP Status: $http_code"
+          echo "Response: $response_body"
+
+          # Check if successful
+          if [ $http_code -eq 200 ]; then
+            echo "✅ Monthly report sent successfully!"
+          else
+            echo "❌ Failed to send monthly report"
+            exit 1
+          fi
+
+      - name: Log Completion
+        run: |
+          echo "📊 Monthly report job completed at $(date)"
+          echo "🎯 Next report will be sent on the 6th of next month"
