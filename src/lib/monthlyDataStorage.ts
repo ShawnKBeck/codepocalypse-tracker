@@ -93,7 +93,7 @@ function getDefaultHistoricalData(): MonthlyDataStorage {
 
   const julyData: MonthlyDataPoint = {
     month: '2025-07',
-    date: '2025-07-15T00:00:00.000Z',
+    date: '2025-07-01T00:00:00.000Z',
     bls: {
       count: julyBLS,
       source: 'live',
@@ -109,7 +109,7 @@ function getDefaultHistoricalData(): MonthlyDataStorage {
       winner: julyJobChange < 0 ? 'Mark' : julyJobChange > 0 ? 'Shawn' : 'Tie',
       baseline: baseline,
     },
-    timestamp: '2025-07-15T00:00:00.000Z',
+    timestamp: '2025-07-01T00:00:00.000Z',
   }
 
   return {
