@@ -6,7 +6,7 @@ To enable the monthly email system, you need to create a `.env.local` file in th
 
 ```bash
 # Resend API Key for Email Sending
-RESEND_API_KEY=re_C77gtmDS_47Zsww59tdeMPC7CETs5GWdU
+RESEND_API_KEY=your_resend_api_key_here
 
 # BLS API Key (optional - for primary data source)
 # BLS_API_KEY=your_bls_api_key_here
@@ -15,12 +15,20 @@ RESEND_API_KEY=re_C77gtmDS_47Zsww59tdeMPC7CETs5GWdU
 # FRED_API_KEY=your_fred_api_key_here
 
 # Report Email Recipients
-REPORT_EMAIL_SHAWN=shawnkbeck@gmail.com
-REPORT_EMAIL_MARK=moosefarnham@gmail.com
+REPORT_EMAIL_SHAWN=your_email@example.com
+REPORT_EMAIL_MARK=mark_email@example.com
 
 # Next.js Configuration
 NEXT_PUBLIC_APP_URL=http://localhost:3000
 ```
+
+## Getting Your Resend API Key
+
+1. Go to [Resend Dashboard](https://resend.com/api-keys)
+2. Click "Create API Key"
+3. Copy the key and paste it in your `.env.local` file
+
+**⚠️ NEVER commit API keys to Git! Always use environment variables.**
 
 ## Monthly Email System
 
